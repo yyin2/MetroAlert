@@ -3,35 +3,35 @@ import SwiftUI
 struct MainView: View {
     @StateObject private var audioManager = AudioManager()
     @State private var searchText = ""
-    @State private var history: [Station] = [
-        Station(name: "People's Square", line: "Line 1/2/8"),
-        Station(name: "Xujiahui", line: "Line 1/9/11")
-    ]
+    @State private var history: [Station] = []
     @State private var activeStation: Station?
     
     var body: some View {
         ZStack {
             MetroColors.background.ignoresSafeArea()
             
-            VStack(spacing: 25) {
+            VStack(spacing: 20) {
                 // Header
                 HStack {
-                    Text("MetroAlert")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                    Text("地铁到站提醒")
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
                     Spacer()
                     Image(systemName: "tram.fill")
                         .foregroundColor(MetroColors.primary)
-                        .font(.title)
+                        .font(.title2)
                 }
                 .padding(.horizontal)
+                .padding(.top, 10)
                 
                 // Search Bar
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.gray)
-                    TextField("Search destination...", text: $searchText)
+                    TextField("搜索目的地车站...", text: $searchText)
                         .foregroundColor(.white)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
                 }
                 .padding()
                 .background(Color.white.opacity(0.1))
@@ -43,13 +43,16 @@ struct MainView: View {
                     VStack {
                         HStack {
                             VStack(alignment: .leading) {
-                                Text("Listening for:")
+                                Text("正在监听：")
                                     .font(.caption)
                                     .foregroundColor(.gray)
                                 Text(active.name)
                                     .font(.title2)
                                     .bold()
                                     .foregroundColor(MetroColors.primary)
+                                Text("\(active.city) · \(active.line)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
                             Spacer()
                             WaveformView()
@@ -60,7 +63,7 @@ struct MainView: View {
                             NotificationManager.shared.stopLiveActivity()
                             activeStation = nil
                         }) {
-                            Text("Stop Reminder")
+                            Text("停止提醒")
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding()
@@ -73,16 +76,26 @@ struct MainView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 
-                // History List
+                // Result/History List
                 VStack(alignment: .leading) {
-                    Text("History")
+                    Text(searchText.isEmpty ? "搜索历史" : "搜索结果")
                         .font(.headline)
                         .foregroundColor(.gray)
                         .padding(.horizontal)
                     
                     ScrollView {
-                        VStack(spacing: 15) {
-                            ForEach(history.filter { searchText.isEmpty || $0.name.contains(searchText) }) { station in
+                        VStack(spacing: 12) {
+                            let filteredStations = searchText.isEmpty ? history : StationProvider.allStations.filter { 
+                                $0.name.contains(searchText) || $0.nameEn.lowercased().contains(searchText.lowercased()) 
+                            }
+                            
+                            if filteredStations.isEmpty && !searchText.isEmpty {
+                                Text("未找到相关车站")
+                                    .foregroundColor(.secondary)
+                                    .padding()
+                            }
+                            
+                            ForEach(filteredStations) { station in
                                 StationRow(station: station) {
                                     startReminder(for: station)
                                 } onDelete: {
@@ -106,6 +119,13 @@ struct MainView: View {
                 }
                 activeStation = nil
             }
+            // Load Sample History
+            if history.isEmpty {
+                history = [
+                    StationProvider.shanghaiStations[4], // 人民广场
+                    StationProvider.beijingStations[2]   // 国贸
+                ]
+            }
         }
     }
     
@@ -114,10 +134,13 @@ struct MainView: View {
             activeStation = station
             audioManager.startMonitoring(for: station)
             NotificationManager.shared.startLiveActivity(for: station.name)
+            
             // Add to history if not exists
             if !history.contains(where: { $0.name == station.name }) {
                 history.insert(station, at: 0)
+                if history.count > 10 { history.removeLast() }
             }
+            searchText = "" // Clear search after selection
         }
     }
 }
@@ -133,7 +156,7 @@ struct StationRow: View {
                 Text(station.name)
                     .font(.headline)
                     .foregroundColor(.white)
-                Text(station.line)
+                Text("\(station.city) · \(station.line)")
                     .font(.subheadline)
                     .foregroundColor(.gray)
             }
@@ -142,19 +165,20 @@ struct StationRow: View {
             Button(action: onSelect) {
                 Image(systemName: "bell.badge.fill")
                     .foregroundColor(MetroColors.primary)
-                    .padding(8)
+                    .padding(10)
                     .background(Color.white.opacity(0.1))
                     .clipShape(Circle())
             }
             
             Button(action: onDelete) {
                 Image(systemName: "trash")
-                    .foregroundColor(.red.opacity(0.7))
+                    .foregroundColor(.red.opacity(0.6))
+                    .padding(.leading, 10)
             }
         }
         .padding()
         .background(Color.white.opacity(0.05))
-        .cornerRadius(12)
+        .cornerRadius(15)
     }
 }
 

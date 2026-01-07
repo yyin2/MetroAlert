@@ -96,18 +96,30 @@ class AudioManager: ObservableObject {
     }
     
     private func checkForMatch(_ text: String) {
-        guard let target = targetStation?.name else { return }
+        guard let station = targetStation else { return }
         
-        let keywords = ["下一站", "到达", "Next station", "Arriving at"]
+        let keywords = ["下一站", "现在到达", "到达", "Next station", "Arriving at"]
         let lowerText = text.lowercased()
-        let lowerTarget = target.lowercased()
         
-        // Check if both keywords and target station are in the transcribed text
+        // Match conditions:
+        // 1. Text contains a keyword (Chinese or English)
+        // 2. Text contains the target station name (Chinese OR English)
+        
         let containsKeyword = keywords.contains { lowerText.contains($0.lowercased()) }
-        let containsTarget = lowerText.contains(lowerTarget)
+        let containsTargetCn = lowerText.contains(station.name.lowercased())
+        let containsTargetEn = lowerText.contains(station.nameEn.lowercased())
         
-        if containsKeyword && containsTarget {
+        // Robust matching: If we hear the keyword AND either version of the station name
+        if containsKeyword && (containsTargetCn || containsTargetEn) {
             DispatchQueue.main.async {
+                self.onMatchFound?()
+                self.stopMonitoring()
+            }
+        }
+        
+        // Alternative: If the text is very short and matches the station name exactly (sometimes the recognizer only catches the name)
+        if (lowerText == station.name.lowercased() || lowerText == station.nameEn.lowercased()) {
+             DispatchQueue.main.async {
                 self.onMatchFound?()
                 self.stopMonitoring()
             }
