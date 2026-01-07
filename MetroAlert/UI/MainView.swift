@@ -6,130 +6,271 @@ struct MainView: View {
     @State private var history: [Station] = []
     @State private var activeStation: Station?
     
+    @State private var arrivingStations: Set<Station> = []
+    @State private var isFlashing = false
+    
     private let historyKey = "station_history"
+    
+    private var allActiveStations: [Station] {
+        Array(audioManager.targetStations.union(arrivingStations))
+            .sorted(by: { $0.name < $1.name })
+    }
+    
+    private var filteredStations: [Station] {
+        if searchText.isEmpty {
+            return history
+        } else {
+            return StationProvider.allStations.filter { 
+                $0.name.contains(searchText) || 
+                $0.nameEn.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+    }
     
     var body: some View {
         ZStack {
             MetroColors.background.ignoresSafeArea()
             
             VStack(spacing: 20) {
-                // Header
-                HStack {
-                    Text("地铁到站提醒")
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                    Spacer()
-                    Image(systemName: "tram.fill")
-                        .foregroundColor(MetroColors.primary)
-                        .font(.title2)
-                }
-                .padding(.horizontal)
-                .padding(.top, 10)
-                
-                // Search Bar
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.gray)
-                    TextField("搜索目的地车站...", text: $searchText)
-                        .foregroundColor(.white)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                }
-                .padding()
-                .background(Color.white.opacity(0.1))
-                .cornerRadius(15)
-                .padding(.horizontal)
-                
-                // Active Alert Section
-                if let active = activeStation {
-                    VStack {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text("正在监听：")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                                Text(active.name)
-                                    .font(.title2)
-                                    .bold()
-                                    .foregroundColor(MetroColors.primary)
-                                Text("\(active.city) · \(active.line)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            WaveformView()
-                        }
-                        
-                        Button(action: {
-                            audioManager.stopMonitoring()
-                            NotificationManager.shared.stopLiveActivity()
-                            activeStation = nil
-                        }) {
-                            Text("停止提醒")
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.red.opacity(0.8))
-                                .cornerRadius(12)
-                        }
-                    }
-                    .glassmorphic()
-                    .padding(.horizontal)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                
-                // Result/History List
-                VStack(alignment: .leading) {
-                    Text(searchText.isEmpty ? "搜索历史" : "搜索结果")
-                        .font(.headline)
-                        .foregroundColor(.gray)
-                        .padding(.horizontal)
-                    
-                    ScrollView {
-                        VStack(spacing: 12) {
-                            let filteredStations = searchText.isEmpty ? history : StationProvider.allStations.filter { 
-                                $0.name.contains(searchText) || $0.nameEn.lowercased().contains(searchText.lowercased()) 
-                            }
-                            
-                            if filteredStations.isEmpty && !searchText.isEmpty {
-                                Text("未找到相关车站")
-                                    .foregroundColor(.secondary)
-                                    .padding()
-                            }
-                            
-                            ForEach(filteredStations) { station in
-                                StationRow(station: station) {
-                                    startReminder(for: station)
-                                } onDelete: {
-                                    history.removeAll { $0.id == station.id }
-                                    saveHistory()
-                                }
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                }
-                
+                headerView
+                searchBar
+                recognitionStatusView
+                activeAlertsSection
+                resultsList
                 Spacer()
             }
         }
         .onAppear {
-            NotificationManager.shared.requestPermissions()
-            audioManager.onMatchFound = {
-                if let station = activeStation {
-                    NotificationManager.shared.triggerArrivedNotification(stationName: station.name)
-                    NotificationManager.shared.stopLiveActivity()
-                }
-                activeStation = nil
-            }
-            loadHistory()
+            setupOnAppear()
         }
+    }
+    
+    // MARK: - Subviews
+    
+    private var headerView: some View {
+        HStack {
+            Text("地铁到站提醒")
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+            Spacer()
+            Image(systemName: "tram.fill")
+                .foregroundColor(MetroColors.primary)
+                .font(.title2)
+        }
+        .padding(.horizontal)
+        .padding(.top, 10)
+    }
+    
+    private var searchBar: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.gray)
+            TextField("搜索目的地车站...", text: $searchText)
+                .foregroundColor(.white)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+        }
+        .padding()
+        .background(Color.white.opacity(0.1))
+        .cornerRadius(15)
+        .padding(.horizontal)
+    }
+    
+    @ViewBuilder
+    private var recognitionStatusView: some View {
+        if audioManager.isMonitoring && (!audioManager.lastTranscribedText.isEmpty || !audioManager.lastMatchStatus.isEmpty) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(audioManager.isMonitoring ? Color.green : Color.gray)
+                            .frame(width: 8, height: 8)
+                        Text(audioManager.isMonitoring ? "正在后台监听" : "监听已停止")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(audioManager.isMonitoring ? .green : .secondary)
+                            .bold(audioManager.isMonitoring)
+                    }
+                    Spacer()
+                    Text("实时语音识别")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                if !audioManager.lastTranscribedText.isEmpty {
+                    Text("\"\(audioManager.lastTranscribedText)\"")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.black.opacity(0.4))
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                } else {
+                    Text("等待环境语音匹配...")
+                        .font(.caption)
+                        .italic()
+                        .foregroundColor(.gray)
+                        .padding(.vertical, 4)
+                }
+                
+                if !audioManager.lastMatchStatus.isEmpty {
+                    HStack {
+                        Circle()
+                            .fill(audioManager.lastMatchStatus.contains("成功") ? Color.green : Color.orange)
+                            .frame(width: 8, height: 8)
+                        Text(audioManager.lastMatchStatus)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.05))
+            .cornerRadius(12)
+            .padding(.horizontal)
+            .transition(.opacity)
+        }
+    }
+    
+    @ViewBuilder
+    private var activeAlertsSection: some View {
+        let activeList = allActiveStations
+        if !activeList.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("当前提醒")
+                    .font(.headline)
+                    .foregroundColor(.gray)
+                    .padding(.horizontal)
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 15) {
+                        ForEach(activeList) { active in
+                            activeAlertCard(for: active)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+    
+    @ViewBuilder
+    private func activeAlertCard(for active: Station) -> some View {
+        let isArriving = arrivingStations.contains(active)
+        VStack {
+            HStack {
+                VStack(alignment: .leading) {
+                    Text(active.name)
+                        .font(.headline)
+                        .bold()
+                        .foregroundColor(isArriving ? .red : MetroColors.primary)
+                    Text(isArriving ? "目的地即将到站！" : active.line)
+                        .font(.caption)
+                        .foregroundColor(isArriving ? .red : .secondary)
+                        .bold(isArriving)
+                }
+                Spacer()
+                if isArriving {
+                    Image(systemName: "bell.and.waves.left.and.right.fill")
+                        .foregroundColor(.red)
+                        .symbolEffect(.bounce, options: .repeating)
+                } else {
+                    WaveformView()
+                }
+            }
+            
+            Button(action: {
+                if isArriving {
+                    arrivingStations.remove(active)
+                } else {
+                    audioManager.removeTargetStation(active)
+                    NotificationManager.shared.stopLiveActivity(for: active.name)
+                }
+            }) {
+                Text(isArriving ? "知道啦" : "停止提醒")
+                    .font(.caption)
+                    .foregroundColor(.white)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(isArriving ? Color.green.opacity(0.8) : Color.red.opacity(0.6))
+                    .cornerRadius(8)
+            }
+        }
+        .padding()
+        .frame(width: 200)
+        .background(isArriving ? Color.red.opacity(isFlashing ? 0.3 : 0.1) : Color.white.opacity(0.1))
+        .cornerRadius(15)
+        .overlay(
+            RoundedRectangle(cornerRadius: 15)
+                .stroke(isArriving ? Color.red : MetroColors.primary.opacity(0.3), lineWidth: isArriving ? 2 : 1)
+                .opacity(isArriving && isFlashing ? 1 : 0.5)
+        )
+        .scaleEffect(isArriving && isFlashing ? 1.05 : 1.0)
+    }
+    
+    private var resultsList: some View {
+        VStack(alignment: .leading) {
+            Text(searchText.isEmpty ? "搜索历史" : "搜索结果")
+                .font(.headline)
+                .foregroundColor(.gray)
+                .padding(.horizontal)
+            
+            ScrollView {
+                VStack(spacing: 12) {
+                    let results = filteredStations
+                    if results.isEmpty && !searchText.isEmpty {
+                        Text("未找到相关车站")
+                            .foregroundColor(.secondary)
+                            .padding()
+                    }
+                    
+                    ForEach(results) { station in
+                        StationRow(station: station) {
+                            startReminder(for: station)
+                        } onDelete: {
+                            history.removeAll { $0.id == station.id }
+                            saveHistory()
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+    
+    // MARK: - Logic
+    
+    private func setupOnAppear() {
+        NotificationManager.shared.requestPermissions()
+        audioManager.onMatchFound = { station in
+            withAnimation(.easeInOut(duration: 0.5)) {
+                _ = arrivingStations.insert(station)
+            }
+            NotificationManager.shared.triggerArrivedNotification(stationName: station.name)
+            NotificationManager.shared.stopLiveActivity(for: station.name)
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                withAnimation {
+                    _ = arrivingStations.remove(station)
+                }
+            }
+        }
+        
+        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+            isFlashing = true
+        }
+        
+        loadHistory()
     }
     
     private func startReminder(for station: Station) {
         withAnimation {
-            activeStation = station
-            audioManager.startMonitoring(for: station)
+            audioManager.addTargetStation(station)
             NotificationManager.shared.startLiveActivity(for: station.name)
             
             // Add to history if not exists, or move to top
@@ -139,7 +280,12 @@ struct MainView: View {
             saveHistory()
             
             searchText = "" // Clear search after selection
+            dismissKeyboard()
         }
+    }
+    
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
     
     private func saveHistory() {
