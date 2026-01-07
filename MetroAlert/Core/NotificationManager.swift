@@ -1,3 +1,7 @@
+import Foundation
+import UserNotifications
+import UIKit
+import ActivityKit
 import AudioToolbox
 
 class NotificationManager: NSObject, UNUserNotificationCenterDelegate {

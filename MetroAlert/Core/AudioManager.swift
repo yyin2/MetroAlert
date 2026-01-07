@@ -267,13 +267,24 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
     
     private func createNewRecognitionTask() {
+        // Ensure clean state
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         
+        DispatchQueue.main.async {
+            self.lastTranscribedText = ""
+        }
+        
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self = self, self.isMonitoring else { return }
+            
+            // Re-check for any pending audio session issues
+            let audioSession = AVAudioSession.sharedInstance()
+            if audioSession.category != .playAndRecord {
+                try? audioSession.setCategory(.playAndRecord, mode: .spokenAudio, options: [.duckOthers, .defaultToSpeaker, .mixWithOthers, .allowBluetooth, .allowBluetoothA2DP])
+            }
             
             self.recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
             guard let request = self.recognitionRequest else { return }
@@ -285,14 +296,16 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 
                 if let result = result {
                     let text = result.bestTranscription.formattedString
-                    print("DEBUG: Recognized: \(text)")
                     
                     DispatchQueue.main.async {
-                        self.lastTranscribedText = text
-                        self.checkForMatch(text)
-                        
-                        if UIApplication.shared.applicationState != .active {
-                            NotificationManager.shared.triggerDebugNotification(text: "识：\(text)")
+                        // Only update if this is still the active request
+                        if request == self.recognitionRequest {
+                            self.lastTranscribedText = text
+                            self.checkForMatch(text)
+                            
+                            if UIApplication.shared.applicationState != .active {
+                                NotificationManager.shared.triggerDebugNotification(text: "识：\(text)")
+                            }
                         }
                     }
                 }
@@ -300,14 +313,17 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 if let error = error {
                     let nsError = error as NSError
                     if self.isMonitoring && !self.targetStations.isEmpty {
-                        if nsError.code != 204 && UIApplication.shared.applicationState != .active {
-                            NotificationManager.shared.triggerDebugNotification(text: "❌ 任务重置 [\(nsError.code)]")
-                        }
-                        
-                        let retryDelay = nsError.code == 1110 ? 3.0 : 0.5
-                        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) {
-                            if self.isMonitoring {
-                                self.restartRecognition()
+                        // Only retry if it's the current request that failed
+                        if request == self.recognitionRequest {
+                            if nsError.code != 204 && UIApplication.shared.applicationState != .active {
+                                NotificationManager.shared.triggerDebugNotification(text: "❌ 任务重置 [\(nsError.code)]")
+                            }
+                            
+                            let retryDelay = nsError.code == 1110 ? 3.0 : 0.5
+                            DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) {
+                                if self.isMonitoring {
+                                    self.restartRecognition()
+                                }
                             }
                         }
                     }
@@ -323,15 +339,23 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     private func restartRecognition() {
         guard isMonitoring && !targetStations.isEmpty else { return }
-        print("DEBUG: Task Rotation - Graceful Handoff")
+        print("DEBUG: Task Rotation - Explicit Handoff")
         
+        // 1. Immediately Signal end to current components
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
         
+        // 2. Clear state immediately to prevent "connection"
+        self.recognitionRequest = nil
+        self.recognitionTask = nil
+        self.lastTranscribedText = ""
+        self.lastMatchStatus = "正在切换通道..."
+        
         if UIApplication.shared.applicationState != .active {
-            NotificationManager.shared.triggerDebugNotification(text: "🔄 切换通道...")
+            NotificationManager.shared.triggerDebugNotification(text: "🔄 切换监听通道...")
         }
         
+        // 3. Wait for system to settle before starting new task
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             guard let self = self, self.isMonitoring else { return }
             self.createNewRecognitionTask()
