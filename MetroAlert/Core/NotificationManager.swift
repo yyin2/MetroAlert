@@ -1,11 +1,10 @@
-import Foundation
-import UserNotifications
-import UIKit
-import ActivityKit
+import AudioToolbox
 
 class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationManager()
     private var activeActivities: [String: Activity<MetroAlertAttributes>] = [:]
+    private var vibrationTimer: Timer?
+    private var vibrationStartTime: Date?
     
     override init() {
         super.init()
@@ -34,20 +33,18 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let content = UNMutableNotificationContent()
         content.title = "🚇 目的地站到了"
         content.body = "已经到达或即将到达：\(stationName)"
-        content.sound = .default // Use standard sound for maximum compatibility
+        content.sound = UNNotificationSound.defaultCriticalSound(withAudioVolume: 1.0)
         
         // Unique identifier to ensure multiple notifications can show
         let request = UNNotificationRequest(identifier: "arrived_\(stationName)_\(Date().timeIntervalSince1970)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
                 print("DEBUG: Error adding notification: \(error)")
-            } else {
-                print("DEBUG: Notification added successfully")
             }
         }
         
-        // 2. Haptic Feedback (Vibration)
-        triggerHeavyVibration()
+        // 2. Persistent 1-minute vibration
+        startAlertVibration()
     }
     
     func triggerDebugNotification(text: String) {
@@ -60,21 +57,35 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         UNUserNotificationCenter.current().add(request)
     }
     
-    private func triggerHeavyVibration() {
-        print("DEBUG: Starting haptic feedback")
-        let generator = UINotificationFeedbackGenerator()
-        generator.prepare()
-        generator.notificationOccurred(.success)
+    private func startAlertVibration() {
+        stopAlertVibration() // Reset if any existing
         
-        // Additional heavy impacts for better feel
-        for i in 0..<4 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.4) {
-                let impact = UIImpactFeedbackGenerator(style: .heavy)
-                impact.prepare()
-                impact.impactOccurred()
-                print("DEBUG: Haptic impact iteration \(i)")
+        print("DEBUG: Starting persistent 1-minute vibration")
+        vibrationStartTime = Date()
+        
+        // Standard vibration is ~0.4s. We vibrate every 1.0s to give the user a clear rhythmic alert.
+        vibrationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self, let start = self.vibrationStartTime else { return }
+            
+            // Limit to 60 seconds
+            if Date().timeIntervalSince(start) > 60 {
+                self.stopAlertVibration()
+                return
             }
+            
+            // primitive vibration works better in background than Taptic Engine generators
+            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
         }
+        
+        // Initial vibration immediately
+        AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+    }
+    
+    func stopAlertVibration() {
+        print("DEBUG: Stopping alert vibration")
+        vibrationTimer?.invalidate()
+        vibrationTimer = nil
+        vibrationStartTime = nil
     }
     
     // MARK: - Live Activity
