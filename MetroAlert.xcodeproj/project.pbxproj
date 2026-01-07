@@ -257,6 +257,9 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "地铁到站提醒需要在后台通过定位维持监听任务，请选择“始终允许”以确保稳定运行。";
+				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "地铁到站提醒需要在后台通过定位维持监听任务。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "我们需要定位权限来保持后台监听的稳定性。";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "通过麦克风来监听站点播报提醒";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "通过语音文本识别来匹配站点";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
@@ -295,6 +298,9 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "地铁到站提醒需要在后台通过定位维持监听任务，请选择“始终允许”以确保稳定运行。";
+				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "地铁到站提醒需要在后台通过定位维持监听任务。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "我们需要定位权限来保持后台监听的稳定性。";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "通过麦克风来监听站点播报提醒";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "通过语音文本识别来匹配站点";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
