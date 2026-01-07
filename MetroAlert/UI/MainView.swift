@@ -6,6 +6,8 @@ struct MainView: View {
     @State private var history: [Station] = []
     @State private var activeStation: Station?
     
+    private let historyKey = "station_history"
+    
     var body: some View {
         ZStack {
             MetroColors.background.ignoresSafeArea()
@@ -100,6 +102,7 @@ struct MainView: View {
                                     startReminder(for: station)
                                 } onDelete: {
                                     history.removeAll { $0.id == station.id }
+                                    saveHistory()
                                 }
                             }
                         }
@@ -119,16 +122,7 @@ struct MainView: View {
                 }
                 activeStation = nil
             }
-            // Load Sample History
-            if history.isEmpty {
-                // Safely load a few Shanghai stations as history
-                let samples = StationProvider.shanghaiStations
-                if samples.count >= 10 {
-                    history = [samples[12], samples[7]] // 人民广场 and 徐家汇 (based on new dataset)
-                } else if !samples.isEmpty {
-                    history = [samples[0]]
-                }
-            }
+            loadHistory()
         }
     }
     
@@ -138,12 +132,35 @@ struct MainView: View {
             audioManager.startMonitoring(for: station)
             NotificationManager.shared.startLiveActivity(for: station.name)
             
-            // Add to history if not exists
-            if !history.contains(where: { $0.name == station.name }) {
-                history.insert(station, at: 0)
-                if history.count > 10 { history.removeLast() }
-            }
+            // Add to history if not exists, or move to top
+            history.removeAll { $0.id == station.id || $0.name == station.name }
+            history.insert(station, at: 0)
+            if history.count > 15 { history.removeLast() }
+            saveHistory()
+            
             searchText = "" // Clear search after selection
+        }
+    }
+    
+    private func saveHistory() {
+        if let encoded = try? JSONEncoder().encode(history) {
+            UserDefaults.standard.set(encoded, forKey: historyKey)
+        }
+    }
+    
+    private func loadHistory() {
+        if let data = UserDefaults.standard.data(forKey: historyKey),
+           let decoded = try? JSONDecoder().decode([Station].self, from: data) {
+            history = decoded
+        }
+        
+        // Final fallback for empty history
+        if history.isEmpty {
+            let samples = StationProvider.shanghaiStations
+            if samples.count >= 13 {
+                history = [samples[12], samples[7]] // People's Square & Xujiahui
+                saveHistory()
+            }
         }
     }
 }
