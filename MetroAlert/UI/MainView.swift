@@ -121,10 +121,13 @@ struct MainView: View {
             }
             // Load Sample History
             if history.isEmpty {
-                history = [
-                    StationProvider.shanghaiStations[4], // 人民广场
-                    StationProvider.beijingStations[2]   // 国贸
-                ]
+                // Safely load a few Shanghai stations as history
+                let samples = StationProvider.shanghaiStations
+                if samples.count >= 10 {
+                    history = [samples[12], samples[7]] // 人民广场 and 徐家汇 (based on new dataset)
+                } else if !samples.isEmpty {
+                    history = [samples[0]]
+                }
             }
         }
     }
