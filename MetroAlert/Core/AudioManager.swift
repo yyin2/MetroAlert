@@ -190,6 +190,11 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         recognitionTaskTimeoutTimer?.invalidate()
         recognitionTaskTimeoutTimer = nil
         
+        // Update UI state
+        isMonitoring = false
+        lastTranscribedText = ""
+        lastMatchStatus = ""
+        
         // Only fully stop background assistance if no alerts are pending
         if !NotificationManager.shared.hasActiveAlerts {
             print("DEBUG: No pending alerts, stopping background task and silent audio")
@@ -197,12 +202,9 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             locationManager.stopUpdatingLocation()
             endBackgroundTask()
             stopHeartbeat()
-            isMonitoring = false
         } else {
-            print("DEBUG: Alerts pending, keeping background task alive for vibration")
+            print("DEBUG: Alerts pending, keeping background task alive for vibration pulse")
         }
-        
-        lastMatchStatus = ""
     }
     
     private func requestPermissions(completion: @escaping (Bool) -> Void) {

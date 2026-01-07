@@ -3,6 +3,7 @@ import UserNotifications
 import UIKit
 import ActivityKit
 import AudioToolbox
+import Combine
 
 class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationManager()
@@ -10,7 +11,7 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     
     // Track which stations are currently in "alert" mode
     private(set) var alertStations: Set<String> = []
-    private var isVibrating = false
+    @Published private(set) var isVibrating = false
     
     var hasActiveAlerts: Bool {
         return !alertStations.isEmpty
@@ -37,27 +38,27 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     }
     
     func triggerArrivedNotification(stationName: String) {
-        print("DEBUG: Finalizing alert request for \(stationName)")
+        print("DEBUG: Notification Manager - Triggering for \(stationName)")
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
-            // 1. Add to active alerts
             self.alertStations.insert(stationName)
-            print("DEBUG: Active alert stations: \(self.alertStations)")
             
-            // 2. Local Notification
+            // Local Notification
             let content = UNMutableNotificationContent()
-            content.title = "🚇 目的地站到了"
-            content.body = "已经到达或即将到达：\(stationName)"
-            // Use standard sound for better background reliability when miked
+            content.title = "🚇 目的地已到：\(stationName)"
+            content.body = "请准备下车或换乘。"
             content.sound = .default
             
-            // Unique identifier per station to ensure multiple banners show
-            let request = UNNotificationRequest(identifier: "arrived_\(stationName)", content: content, trigger: nil)
+            // Use unique identifier with timestamp to prevent overwriting
+            let request = UNNotificationRequest(
+                identifier: "arrived_\(stationName)_\(Date().timeIntervalSince1970)", 
+                content: content, 
+                trigger: nil
+            )
             UNUserNotificationCenter.current().add(request)
             
-            // 3. Start/Maintain vibration
             self.startAlertVibration()
         }
     }
@@ -66,11 +67,9 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
-            print("DEBUG: User dismissed alert for \(stationName)")
+            print("DEBUG: Dismissing alert station: \(stationName)")
             self.alertStations.remove(stationName)
-            print("DEBUG: Remaining alert stations: \(self.alertStations)")
             
-            // If no more stations are alerting, stop vibration
             if self.alertStations.isEmpty {
                 self.stopAlertVibration()
             }
@@ -79,7 +78,7 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     
     func triggerDebugNotification(text: String) {
         let content = UNMutableNotificationContent()
-        content.title = "🔍 监听诊断 (调试用)"
+        content.title = "🔍 监听诊断"
         content.body = text
         content.sound = nil 
         
@@ -89,41 +88,48 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     
     private func startAlertVibration() {
         guard !isVibrating else {
-            print("DEBUG: Vibration already running for: \(alertStations)")
+            print("DEBUG: Vibration already active. Stations: \(alertStations)")
             return 
         }
         
-        print("DEBUG: Starting persistent recursive vibration loop")
+        print("DEBUG: Spawning dedicated vibration thread")
         isVibrating = true
-        runVibrationLoop()
+        
+        // Detach a new thread to ensure the loop runs independently of the Main runloop
+        // This is the most reliable way to maintain a pulse in the background
+        Thread.detachNewThread { [weak self] in
+            print("DEBUG: Vibration thread started")
+            while true {
+                guard let self = self, self.isVibrating, !self.alertStations.isEmpty else {
+                    print("DEBUG: Vibration thread condition failed, exiting...")
+                    self?.stopVibrationFlag()
+                    break
+                }
+                
+                // standard system vibration
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                
+                // Pulse every 1.1s to allow the 0.4s vibration to finish and breath
+                Thread.sleep(forTimeInterval: 1.1)
+            }
+        }
     }
     
-    private func runVibrationLoop() {
-        guard isVibrating && !alertStations.isEmpty else {
-            print("DEBUG: Vibration loop terminated (isVibrating: \(isVibrating), count: \(alertStations.count))")
-            isVibrating = false
-            return
-        }
-        
-        // Use AlertSound which is higher priority than SystemSound
-        AudioServicesPlayAlertSound(kSystemSoundID_Vibrate)
-        
-        // Recursive call for better background stability than a Timer
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.runVibrationLoop()
+    private func stopVibrationFlag() {
+        DispatchQueue.main.async {
+            self.isVibrating = false
         }
     }
     
     func stopAlertVibration() {
-        print("DEBUG: Signaling vibration loop to stop")
+        print("DEBUG: Requesting vibration stop")
         isVibrating = false
     }
     
-    // Stop ALL alerts (e.g. when app stops monitoring)
     func clearAllAlerts() {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            print("DEBUG: Force clearing all active alerts")
+            print("DEBUG: Force clearing all alerts")
             self.alertStations.removeAll()
             self.stopAlertVibration()
         }
