@@ -188,7 +188,7 @@ struct MainView: View {
                 if isArriving {
                     withAnimation {
                         arrivingStations.remove(active)
-                        NotificationManager.shared.stopAlertVibration()
+                        NotificationManager.shared.dismissAlert(for: active.name)
                     }
                 } else {
                     audioManager.removeTargetStation(active)
@@ -256,16 +256,6 @@ struct MainView: View {
             }
             NotificationManager.shared.triggerArrivedNotification(stationName: station.name)
             NotificationManager.shared.stopLiveActivity(for: station.name)
-            
-            // Auto-stop after 60 seconds if user doesn't dismiss
-            DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
-                withAnimation {
-                    if arrivingStations.contains(station) {
-                        _ = arrivingStations.remove(station)
-                        NotificationManager.shared.stopAlertVibration()
-                    }
-                }
-            }
         }
         
         withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {

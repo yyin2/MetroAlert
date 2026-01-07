@@ -68,7 +68,8 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             if UIApplication.shared.applicationState != .active {
                 // Diagnostic check
                 let audioStatus = self.bufferCount > 0 ? "🎤 OK" : "🔇 NO DATA"
-                NotificationManager.shared.triggerDebugNotification(text: "💓 Background Alive [\(audioStatus)] (\(self.bufferCount))")
+                let alertStatus = NotificationManager.shared.hasActiveAlerts ? "🔔 ALERT" : "💤 IDLE"
+                NotificationManager.shared.triggerDebugNotification(text: "💓 Background Alive [\(audioStatus)] [\(alertStatus)]")
                 
                 // CRITICAL: If NO DATA and we should be monitoring, force an engine restart
                 if self.isMonitoring && self.bufferCount == 0 {
@@ -180,23 +181,28 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
     
     func stopMonitoring() {
-        print("DEBUG: Stopping monitoring")
-        silentPlayer?.stop()
-        locationManager.stopUpdatingLocation()
-        endBackgroundTask()
-        stopHeartbeat()
-        recognitionTaskTimeoutTimer?.invalidate()
-        recognitionTaskTimeoutTimer = nil
-        
+        print("DEBUG: Stopping listening engine")
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
         
-        isMonitoring = false
-        targetStations.removeAll()
+        recognitionTaskTimeoutTimer?.invalidate()
+        recognitionTaskTimeoutTimer = nil
+        
+        // Only fully stop background assistance if no alerts are pending
+        if !NotificationManager.shared.hasActiveAlerts {
+            print("DEBUG: No pending alerts, stopping background task and silent audio")
+            silentPlayer?.stop()
+            locationManager.stopUpdatingLocation()
+            endBackgroundTask()
+            stopHeartbeat()
+            isMonitoring = false
+        } else {
+            print("DEBUG: Alerts pending, keeping background task alive for vibration")
+        }
+        
         lastMatchStatus = ""
-        lastTranscribedText = ""
     }
     
     private func requestPermissions(completion: @escaping (Bool) -> Void) {
@@ -368,6 +374,8 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         let keywords = ["下一站", "现在到达", "到达", "即将", "站名", "Next station", "Arriving at"]
         let lowerText = text.lowercased()
         
+        var matches: [Station] = []
+        
         for station in targetStations {
             let containsKeyword = keywords.contains { lowerText.contains($0.lowercased()) }
             let containsTargetCn = lowerText.contains(station.name.lowercased())
@@ -375,12 +383,17 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             let isExactMatch = (lowerText == station.name.lowercased() || lowerText == station.nameEn.lowercased())
             
             if (containsKeyword && (containsTargetCn || containsTargetEn)) || isExactMatch {
-                self.lastMatchStatus = "匹配成功: \(station.name)"
-                self.onMatchFound?(station)
-                self.removeTargetStation(station)
+                matches.append(station)
             } else if lowerText.contains(station.name.lowercased()) || lowerText.contains(station.nameEn.lowercased()) {
                 self.lastMatchStatus = "检测到站点名，等待关键词..."
             }
+        }
+        
+        // Process matches outside the iteration to avoid mutation error
+        for station in matches {
+            self.lastMatchStatus = "匹配成功: \(station.name)"
+            self.onMatchFound?(station)
+            self.removeTargetStation(station)
         }
     }
 }
