@@ -243,8 +243,9 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            // Mode .spokenAudio is high priority for long-running audio apps
-            try audioSession.setCategory(.playAndRecord, mode: .spokenAudio, options: [.duckOthers, .defaultToSpeaker, .mixWithOthers, .allowBluetooth, .allowBluetoothA2DP])
+            // Mode .measurement provides raw audio input by disabling system-applied processing (noise cancellation, AGC)
+            // This is ideal for capturing distant ambient room sounds like subway announcements.
+            try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker, .mixWithOthers, .allowBluetooth, .allowBluetoothA2DP])
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             print("DEBUG: Audio session error: \(error)")
@@ -290,8 +291,8 @@ class AudioManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             
             // Re-check for any pending audio session issues
             let audioSession = AVAudioSession.sharedInstance()
-            if audioSession.category != .playAndRecord {
-                try? audioSession.setCategory(.playAndRecord, mode: .spokenAudio, options: [.duckOthers, .defaultToSpeaker, .mixWithOthers, .allowBluetooth, .allowBluetoothA2DP])
+            if audioSession.mode != .measurement {
+                try? audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker, .mixWithOthers, .allowBluetooth, .allowBluetoothA2DP])
             }
             
             self.recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
